@@ -112,7 +112,8 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
 
     // Add the destination or custom redirect to the URL
     if ($customRedirect) {
-        $authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . urlencode($customRedirect);
+        //$authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . urlencode($customRedirect);
+        $authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . $customRedirect;
     } elseif ($destination !== 'clientarea') {
         $authUrl .= "&destination=$destination";
     }
