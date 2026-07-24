@@ -1,15 +1,15 @@
 <?php
-require_once 'init.php'; // Inicialize o WHMCS
+require_once 'init.php'; // Initialize WHMCS
 use WHMCS\Database\Capsule;
 
 $token = $_GET['token'] ?? null;
-$destination = $_GET['destination'] ?? 'clientarea'; // Define como 'clientarea' se nenhum destination for passado
+$destination = $_GET['destination'] ?? 'clientarea'; // Default to 'clientarea' if no destination is provided
 $ssoRedirectPath = $_GET['sso_redirect_path'] ?? null;
 
-// Decodifica o sso_redirect_path para garantir que "&amp;" seja tratado como "&"
+// Decode sso_redirect_path to ensure "&amp;" is treated as "&"
 $ssoRedirectPath = $ssoRedirectPath ? html_entity_decode($ssoRedirectPath) : null;
 
-// Log do token e outros parâmetros
+// Log the token and other parameters
 error_log("Token recebido: " . ($token ?? 'Nenhum token'));
 error_log("Destination recebido: " . ($destination ?? 'Nenhum destination'));
 error_log("SSO Redirect Path recebido: " . ($ssoRedirectPath ?? 'Nenhum redirect_path'));
@@ -18,20 +18,20 @@ if (!$token) {
     die('Token inválido.');
 }
 
-// Ajusta o destination se houver um sso_redirect_path presente
+// Adjust the destination if sso_redirect_path is present
 $fullDestination = $destination;
 if ($destination === 'sso:custom_redirect' && $ssoRedirectPath) {
     $fullDestination = "sso:custom_redirect|" . $ssoRedirectPath;
 }
 
-// Buscar o token e o destination completo no banco de dados
+// Retrieve the token and full destination from the database
 $tokenData = Capsule::table('autologin_tokens')
     ->where('token', $token)
-    ->where('destination', $fullDestination) // Verifica destination completo
+    ->where('destination', $fullDestination) // Check the full destination
     ->first();
 
 if (!$tokenData && $destination === 'clientarea') {
-    // Tenta buscar o token para clientarea quando nenhum destination é passado
+    // Attempt to retrieve the clientarea token when no destination is provided
     $tokenData = Capsule::table('autologin_tokens')
         ->where('token', $token)
         ->where('destination', 'clientarea')
@@ -40,42 +40,42 @@ if (!$tokenData && $destination === 'clientarea') {
 
 if ($tokenData) {
     $creationTime = $tokenData->creation_time;
-    $expirationTime = 86400; // 24 horas em segundos
+    $expirationTime = 86400; // 24 hours in seconds
 
-    // Verifique se o token está dentro do período de validade
+    // Check whether the token is still within its validity period
     if (time() - $creationTime < $expirationTime) {
-        // Gere o SSO token para o cliente
+        // Generate the SSO token for the client
         $clientId = $tokenData->client_id;
         
-        // Configura os parâmetros para a chamada à API
+        // Configure the parameters for the API call
         $params = [
             'client_id' => $clientId
         ];
         
-        // Adiciona o destination se ele estiver presente e não for 'clientarea'
+        // Add the destination if it is present and is not 'clientarea'
         if ($destination !== 'clientarea') {
             $params['destination'] = $destination;
             error_log("Destination set to: " . $destination);
         }
         
-        // Adiciona o sso_redirect_path se o destination for sso:custom_redirect
+        // Add sso_redirect_path if the destination is sso:custom_redirect
         if ($destination === 'sso:custom_redirect' && $ssoRedirectPath) {
             $params['sso_redirect_path'] = $ssoRedirectPath;
             error_log("SSO Redirect Path set to: " . $ssoRedirectPath);
         }
 
-        // Chamando a API local para gerar o SSO token
+        // Call the local API to generate the SSO token
         $response = localAPI('CreateSsoToken', $params);
         
-        // Log da resposta da API
+        // Log the API response
         error_log("Resposta da API CreateSsoToken: " . print_r($response, true));
 
         if ($response['result'] == 'success') {
-            // Delete o token para garantir uso único
+            // Delete the token to ensure it can be used only once
             Capsule::table('autologin_tokens')->where('token', $token)->delete();
             error_log("Token excluído após uso.");
 
-            // Redirecione o cliente para o link SSO
+            // Redirect the client to the SSO link
             header("Location: " . $response['redirect_url']);
             exit;
         } else {
