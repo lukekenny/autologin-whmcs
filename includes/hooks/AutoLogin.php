@@ -4,6 +4,15 @@ if (!defined("WHMCS")) die("Acesso restrito.");
 
 use WHMCS\Database\Capsule;
 
+/*
+ * Auto-login token settings. Change these values to adjust token behaviour.
+ * AUTOLOGIN_TOKEN_MAX_LIFETIME is the maximum time an unused token remains valid.
+ * AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD allows repeat redemptions after first use,
+ * which prevents email-link scanners from consuming a recipient's link immediately.
+ */
+define('AUTOLOGIN_TOKEN_MAX_LIFETIME', 86400); // 24 hours, in seconds.
+define('AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD', 60); // 60 seconds, in seconds.
+
 /**
  * Checks for and creates the autologin token table if it does not exist.
  */
@@ -15,6 +24,7 @@ function verificarOuCriarTabelaAutologin() {
             $table->string('token', 64)->unique();
             $table->string('destination');
             $table->integer('creation_time');
+            $table->integer('first_used_at')->nullable();
         });
         error_log("Table 'autologin_tokens' created successfully.");
     } else {
@@ -55,6 +65,13 @@ function verificarOuCriarTabelaAutologin() {
             });
             error_log("Column 'creation_time' added to table 'autologin_tokens'.");
         }
+
+        if (!Capsule::schema()->hasColumn('autologin_tokens', 'first_used_at')) {
+            Capsule::schema()->table('autologin_tokens', function ($table) {
+                $table->integer('first_used_at')->nullable();
+            });
+            error_log("Column 'first_used_at' added to table 'autologin_tokens'.");
+        }
     }
 }
 
@@ -74,9 +91,6 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
         return ''; // Return an empty string if client_id is invalid
     }
 
-    // Token expiration time in seconds (24 hours)
-    $expirationTime = 86400;
-
     // If there is a custom redirect path, include it as part of the destination
     if ($customRedirect) {
         $destination = "sso:custom_redirect|" . $customRedirect;
@@ -88,21 +102,26 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
         ->where('destination', $destination) // Check the full destination
         ->first();
 
-    if ($tokenData && (time() - $tokenData->creation_time < $expirationTime)) {
+    $now = time();
+    $isWithinMaximumLifetime = $tokenData && ($now - $tokenData->creation_time < AUTOLOGIN_TOKEN_MAX_LIFETIME);
+    $isWithinGracePeriod = $tokenData && (!$tokenData->first_used_at || ($now - $tokenData->first_used_at < AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD));
+
+    if ($tokenData && $isWithinMaximumLifetime && $isWithinGracePeriod) {
         $token = $tokenData->token;
         error_log("Active token found for client ID: $clientId and destination: $destination; reusing token.");
     } else {
-        // Delete expired tokens or create a new one if no token exists for the full destination
+        // Delete tokens that have exceeded their lifetime or post-redemption grace period before creating a replacement.
         if ($tokenData) {
             Capsule::table('autologin_tokens')->where('id', $tokenData->id)->delete();
-            error_log("Token expired or incorrect for destination; creating a new token for destination: $destination.");
+            error_log("Token expired for destination; creating a new token for destination: $destination.");
         }
         $token = hash('sha256', uniqid(rand(), true));
         Capsule::table('autologin_tokens')->insert([
             'client_id' => $clientId,
             'token' => $token,
             'destination' => $destination, // Store the full destination
-            'creation_time' => time()
+            'creation_time' => $now,
+            'first_used_at' => null
         ]);
     }
 
@@ -113,7 +132,6 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
     // Add the destination or custom redirect to the URL
     if ($customRedirect) {
         $authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . rawurlencode($customRedirect);
-        //$authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . $customRedirect;
     } elseif ($destination !== 'clientarea') {
         $authUrl .= "&destination=$destination";
     }
