@@ -5,7 +5,7 @@ if (!defined("WHMCS")) die("Acesso restrito.");
 use WHMCS\Database\Capsule;
 
 /**
- * Função para verificar e criar a tabela de tokens de autologin, se não existir.
+ * Checks for and creates the autologin token table if it does not exist.
  */
 function verificarOuCriarTabelaAutologin() {
     if (!Capsule::schema()->hasTable('autologin_tokens')) {
@@ -20,7 +20,7 @@ function verificarOuCriarTabelaAutologin() {
     } else {
         error_log("Tabela 'autologin_tokens' já existe. Verificando colunas...");
 
-        // Verificar se cada coluna existe e criar se estiver ausente
+        // Check whether each column exists and create it if it is missing
         if (!Capsule::schema()->hasColumn('autologin_tokens', 'id')) {
             Capsule::schema()->table('autologin_tokens', function ($table) {
                 $table->increments('id');
@@ -59,40 +59,40 @@ function verificarOuCriarTabelaAutologin() {
 }
 
 /**
- * Gera um link de login automático para o cliente com token personalizado e destino opcional.
+ * Generates an automatic login link for the client with a custom token and optional destination.
  *
- * @param int $clientId ID do cliente no WHMCS.
- * @param string $destination Página de destino após o login: 'clientarea', 'clientarea:invoices', ou 'clientarea:submit_ticket'.
- * @param string $customRedirect Caminho personalizado para redirecionamento
- * @return string URL de login automático.
+ * @param int $clientId The client's ID in WHMCS.
+ * @param string $destination Destination page after login: 'clientarea', 'clientarea:invoices', or 'clientarea:submit_ticket'.
+ * @param string $customRedirect Custom redirect path.
+ * @return string Automatic login URL.
  */
 function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedirect = '') {
-    verificarOuCriarTabelaAutologin(); // Verifica e cria a tabela se necessário
+    verificarOuCriarTabelaAutologin(); // Check for and create the table if necessary
     
     if (empty($clientId) || !is_numeric($clientId)) {
         error_log("Client ID inválido ao gerar link de autologin.");
-        return ''; // Retorna vazio se o client_id for inválido
+        return ''; // Return an empty string if client_id is invalid
     }
 
-    // Tempo de expiração do token em segundos (24 horas)
+    // Token expiration time in seconds (24 hours)
     $expirationTime = 86400;
 
-    // Se houver um caminho de redirecionamento personalizado, inclua-o como parte do destination
+    // If there is a custom redirect path, include it as part of the destination
     if ($customRedirect) {
         $destination = "sso:custom_redirect|" . $customRedirect;
     }
 
-    // Verificar se já existe um token ativo para o client_id e destination completo (incluindo redirect)
+    // Check whether an active token already exists for the client_id and full destination (including redirect)
     $tokenData = Capsule::table('autologin_tokens')
         ->where('client_id', $clientId)
-        ->where('destination', $destination) // Verifica destination completo
+        ->where('destination', $destination) // Check the full destination
         ->first();
 
     if ($tokenData && (time() - $tokenData->creation_time < $expirationTime)) {
         $token = $tokenData->token;
         error_log("Token ativo encontrado para o cliente ID: $clientId e destination: $destination, reutilizando token.");
     } else {
-        // Deletar tokens expirados ou criar novo se nenhum token existir para o destino completo
+        // Delete expired tokens or create a new one if no token exists for the full destination
         if ($tokenData) {
             Capsule::table('autologin_tokens')->where('id', $tokenData->id)->delete();
             error_log("Token expirado ou incorreto para destination, criando novo token para destination: $destination.");
@@ -101,16 +101,16 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
         Capsule::table('autologin_tokens')->insert([
             'client_id' => $clientId,
             'token' => $token,
-            'destination' => $destination, // Armazena destination completo
+            'destination' => $destination, // Store the full destination
             'creation_time' => time()
         ]);
     }
 
-    // Construir a URL de autologin com o token personalizado
+    // Build the autologin URL with the custom token
     $whmcsUrl = Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value');
     $authUrl = $whmcsUrl . "auth.php?token=$token";
 
-    // Adiciona o destination ou redirecionamento personalizado na URL
+    // Add the destination or custom redirect to the URL
     if ($customRedirect) {
         $authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . urlencode($customRedirect);
     } elseif ($destination !== 'clientarea') {
@@ -121,39 +121,39 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
 }
 
 /**
- * Hook para adicionar diferentes campos de mesclagem de auto-login em todos os e-mails.
+ * Hook to add various auto-login merge fields to all emails.
  */
 function CustomEmail_EmailPreSend($vars) {
     if (isset($vars['relid']) && $vars['relid'] > 0) {
         $clientId = $vars['mergefields']['client_id'];
 
-        // Verificar se o URL do ticket e o ID da fatura estão disponíveis no mergefields
+        // Check whether the ticket URL and invoice ID are available in the merge fields
         $ticketUrl = $vars['mergefields']['ticket_url'] ?? null;
         $invoiceId = $vars['mergefields']['invoice_id'] ?? null;
 
-        // Extraímos apenas o caminho desejado da URL completa do ticket
+        // Extract only the desired path from the full ticket URL
         $customRedirectPathTicket = null;
         if ($ticketUrl) {
             $parsedUrl = parse_url($ticketUrl);
             $customRedirectPathTicket = ltrim($parsedUrl['path'], '/') . '?' . $parsedUrl['query'];
         }
 
-        // Construir o caminho para a fatura específica, se o ID estiver disponível
+        // Build the path for the specific invoice if the ID is available
         $customRedirectPathInvoice = $invoiceId ? "viewinvoice.php?id=" . $invoiceId : null;
 
-        // Gerar links de autologin para diferentes destinos
+        // Generate autologin links for different destinations
         $autoLoginLink = gerarLinkAutoLogin($clientId, 'clientarea');
         $autoLoginLinkSubmitTicket = gerarLinkAutoLogin($clientId, 'clientarea:submit_ticket');
         $autoLoginLinkTicket = gerarLinkAutoLogin($clientId, 'clientarea:tickets');
         $autoLoginLinkInvoices = gerarLinkAutoLogin($clientId, 'clientarea:invoices');
 
-        // Links específicos para o ticket e a fatura
+        // Specific links for the ticket and invoice
         $autoLoginLinkSpecificTicket = $customRedirectPathTicket ? gerarLinkAutoLogin($clientId, 'clientarea', $customRedirectPathTicket) : null;
         $autoLoginLinkSpecificInvoice = $customRedirectPathInvoice ? gerarLinkAutoLogin($clientId, 'clientarea', $customRedirectPathInvoice) : null;
 
         error_log("Campo de mesclagem de auto-login adicionado para o cliente ID $clientId.");
 
-        // Retornar os campos de mesclagem de links de autologin
+        // Return the autologin link merge fields
         return [
             'auto_login_link' => $autoLoginLink,
             'auto_login_link_submit_ticket' => $autoLoginLinkSubmitTicket,
