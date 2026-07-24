@@ -76,12 +76,12 @@ function verificarOuCriarTabelaAutologin() {
 }
 
 /**
- * Generates an automatic login link for the client with a custom token and optional destination.
+ * Generates an automatic login link for the client with a stored destination.
  *
  * @param int $clientId The client's ID in WHMCS.
  * @param string $destination Destination page after login: 'clientarea', 'clientarea:invoices', or 'clientarea:submit_ticket'.
  * @param string $customRedirect Custom redirect path.
- * @return string Automatic login URL.
+ * @return string Automatic login URL containing only its token. The destination remains server-side.
  */
 function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedirect = '') {
     verificarOuCriarTabelaAutologin(); // Check for and create the table if necessary
@@ -91,7 +91,7 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
         return ''; // Return an empty string if client_id is invalid
     }
 
-    // If there is a custom redirect path, include it as part of the destination
+    // If there is a custom redirect path, include it as part of the stored destination.
     if ($customRedirect) {
         $destination = "sso:custom_redirect|" . $customRedirect;
     }
@@ -125,18 +125,9 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
         ]);
     }
 
-    // Build the autologin URL with the custom token
+    // The destination is stored with the token, avoiding extra query parameters in email links.
     $whmcsUrl = Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value');
-    $authUrl = $whmcsUrl . "auth.php?token=$token";
-
-    // Add the destination or custom redirect to the URL
-    if ($customRedirect) {
-        $authUrl .= "&destination=sso:custom_redirect&sso_redirect_path=" . rawurlencode($customRedirect);
-    } elseif ($destination !== 'clientarea') {
-        $authUrl .= "&destination=$destination";
-    }
-
-    return $authUrl;
+    return $whmcsUrl . "auth.php?token=$token";
 }
 
 /**

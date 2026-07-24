@@ -12,40 +12,19 @@ define('AUTOLOGIN_TOKEN_MAX_LIFETIME', 86400); // 24 hours, in seconds.
 define('AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD', 60); // 60 seconds, in seconds.
 
 $token = $_GET['token'] ?? null;
-$destination = $_GET['destination'] ?? 'clientarea'; // Default to 'clientarea' if no destination is provided
-$ssoRedirectPath = $_GET['sso_redirect_path'] ?? null;
 
-// Decode sso_redirect_path to ensure "&amp;" is treated as "&"
-$ssoRedirectPath = $ssoRedirectPath ? html_entity_decode($ssoRedirectPath) : null;
-
-// Log the token and other parameters
+// The token record is the authoritative source of the post-login destination.
+// Do not rely on destination parameters in the public email URL.
 error_log("Token received: " . ($token ?? 'No token'));
-error_log("Destination received: " . ($destination ?? 'No destination'));
-error_log("SSO Redirect Path received: " . ($ssoRedirectPath ?? 'No redirect_path'));
 
 if (!$token) {
     die('Token inválido.');
 }
 
-// Adjust the destination if sso_redirect_path is present
-$fullDestination = $destination;
-if ($destination === 'sso:custom_redirect' && $ssoRedirectPath) {
-    $fullDestination = "sso:custom_redirect|" . $ssoRedirectPath;
-}
-
-// Retrieve the token and full destination from the database
+// Retrieve the token and its stored destination from the database.
 $tokenData = Capsule::table('autologin_tokens')
     ->where('token', $token)
-    ->where('destination', $fullDestination) // Check the full destination
     ->first();
-
-if (!$tokenData && $destination === 'clientarea') {
-    // Attempt to retrieve the clientarea token when no destination is provided
-    $tokenData = Capsule::table('autologin_tokens')
-        ->where('token', $token)
-        ->where('destination', 'clientarea')
-        ->first();
-}
 
 if ($tokenData) {
     $now = time();
@@ -57,30 +36,29 @@ if ($tokenData) {
 
     // Permit unused tokens for their full lifetime and used tokens during the configured grace period.
     if ($isWithinMaximumLifetime && $isWithinGracePeriod) {
-        // Generate the SSO token for the client
+        // Generate the SSO token for the client.
         $clientId = $tokenData->client_id;
-        
-        // Configure the parameters for the API call
+        $storedDestination = $tokenData->destination;
         $params = [
             'client_id' => $clientId
         ];
-        
-        // Add the destination if it is present and is not 'clientarea'
-        if ($destination !== 'clientarea') {
+
+        // Restore the exact destination from the token record. Custom redirect paths are stored
+        // as "sso:custom_redirect|relative/path" so they do not need to appear in email URLs.
+        if (strpos($storedDestination, 'sso:custom_redirect|') === 0) {
+            list($destination, $ssoRedirectPath) = explode('|', $storedDestination, 2);
             $params['destination'] = $destination;
-            error_log("Destination set to: " . $destination);
-        }
-        
-        // Add sso_redirect_path if the destination is sso:custom_redirect
-        if ($destination === 'sso:custom_redirect' && $ssoRedirectPath) {
             $params['sso_redirect_path'] = $ssoRedirectPath;
-            error_log("SSO Redirect Path set to: " . $ssoRedirectPath);
+            error_log("Stored custom SSO redirect path set to: " . $ssoRedirectPath);
+        } elseif ($storedDestination !== 'clientarea') {
+            $params['destination'] = $storedDestination;
+            error_log("Stored destination set to: " . $storedDestination);
         }
 
-        // Call the local API to generate the SSO token
+        // Call the local API to generate the SSO token.
         $response = localAPI('CreateSsoToken', $params);
-        
-        // Log the API response
+
+        // Log the API response.
         error_log("CreateSsoToken API response: " . print_r($response, true));
 
         if ($response['result'] == 'success') {
@@ -95,7 +73,7 @@ if ($tokenData) {
                 error_log("Token redeemed within its grace period.");
             }
 
-            // Redirect the client to the SSO link
+            // Redirect the client to the SSO link.
             header("Location: " . $response['redirect_url']);
             exit;
         } else {
@@ -110,7 +88,7 @@ if ($tokenData) {
         }
     }
 } else {
-    error_log("Token is invalid or was not found, or the destination is incorrect.");
+    error_log("Token is invalid or was not found.");
 }
 
 die('Token inválido ou expirado.');
