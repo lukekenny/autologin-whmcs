@@ -2,6 +2,15 @@
 require_once 'init.php'; // Initialize WHMCS
 use WHMCS\Database\Capsule;
 
+/*
+ * Auto-login token settings. Change these values to adjust token behaviour.
+ * AUTOLOGIN_TOKEN_MAX_LIFETIME is the maximum time an unused token remains valid.
+ * AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD allows repeat redemptions after first use,
+ * which prevents email-link scanners from consuming a recipient's link immediately.
+ */
+define('AUTOLOGIN_TOKEN_MAX_LIFETIME', 86400); // 24 hours, in seconds.
+define('AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD', 60); // 60 seconds, in seconds.
+
 $token = $_GET['token'] ?? null;
 $destination = $_GET['destination'] ?? 'clientarea'; // Default to 'clientarea' if no destination is provided
 $ssoRedirectPath = $_GET['sso_redirect_path'] ?? null;
@@ -39,11 +48,15 @@ if (!$tokenData && $destination === 'clientarea') {
 }
 
 if ($tokenData) {
-    $creationTime = $tokenData->creation_time;
-    $expirationTime = 86400; // 24 hours in seconds
+    $now = time();
+    $tokenAge = $now - $tokenData->creation_time;
+    $firstUsedAt = $tokenData->first_used_at;
+    $timeSinceFirstUse = $firstUsedAt ? $now - $firstUsedAt : null;
+    $isWithinMaximumLifetime = $tokenAge < AUTOLOGIN_TOKEN_MAX_LIFETIME;
+    $isWithinGracePeriod = !$firstUsedAt || $timeSinceFirstUse < AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD;
 
-    // Check whether the token is still within its validity period
-    if (time() - $creationTime < $expirationTime) {
+    // Permit unused tokens for their full lifetime and used tokens during the configured grace period.
+    if ($isWithinMaximumLifetime && $isWithinGracePeriod) {
         // Generate the SSO token for the client
         $clientId = $tokenData->client_id;
         
@@ -71,9 +84,16 @@ if ($tokenData) {
         error_log("CreateSsoToken API response: " . print_r($response, true));
 
         if ($response['result'] == 'success') {
-            // Delete the token to ensure it can be used only once
-            Capsule::table('autologin_tokens')->where('token', $token)->delete();
-            error_log("Token deleted after use.");
+            // Record first use and retain the token only for the configured grace period.
+            if (!$firstUsedAt) {
+                Capsule::table('autologin_tokens')
+                    ->where('token', $token)
+                    ->whereNull('first_used_at')
+                    ->update(['first_used_at' => $now]);
+                error_log("Token first used; it remains redeemable for " . AUTOLOGIN_TOKEN_REDEMPTION_GRACE_PERIOD . " seconds.");
+            } else {
+                error_log("Token redeemed within its grace period.");
+            }
 
             // Redirect the client to the SSO link
             header("Location: " . $response['redirect_url']);
@@ -82,7 +102,12 @@ if ($tokenData) {
             error_log("Error generating SSO token: " . $response['message']);
         }
     } else {
-        error_log("Token expired.");
+        Capsule::table('autologin_tokens')->where('token', $token)->delete();
+        if (!$isWithinMaximumLifetime) {
+            error_log("Token expired after its maximum lifetime.");
+        } else {
+            error_log("Token redemption grace period expired.");
+        }
     }
 } else {
     error_log("Token is invalid or was not found, or the destination is incorrect.");
