@@ -16,44 +16,44 @@ function verificarOuCriarTabelaAutologin() {
             $table->string('destination');
             $table->integer('creation_time');
         });
-        error_log("Tabela 'autologin_tokens' criada com sucesso.");
+        error_log("Table 'autologin_tokens' created successfully.");
     } else {
-        error_log("Tabela 'autologin_tokens' já existe. Verificando colunas...");
+        error_log("Table 'autologin_tokens' already exists. Checking columns...");
 
         // Check whether each column exists and create it if it is missing
         if (!Capsule::schema()->hasColumn('autologin_tokens', 'id')) {
             Capsule::schema()->table('autologin_tokens', function ($table) {
                 $table->increments('id');
             });
-            error_log("Coluna 'id' adicionada à tabela 'autologin_tokens'.");
+            error_log("Column 'id' added to table 'autologin_tokens'.");
         }
 
         if (!Capsule::schema()->hasColumn('autologin_tokens', 'client_id')) {
             Capsule::schema()->table('autologin_tokens', function ($table) {
                 $table->integer('client_id')->unsigned();
             });
-            error_log("Coluna 'client_id' adicionada à tabela 'autologin_tokens'.");
+            error_log("Column 'client_id' added to table 'autologin_tokens'.");
         }
 
         if (!Capsule::schema()->hasColumn('autologin_tokens', 'token')) {
             Capsule::schema()->table('autologin_tokens', function ($table) {
                 $table->string('token', 64)->unique();
             });
-            error_log("Coluna 'token' adicionada à tabela 'autologin_tokens'.");
+            error_log("Column 'token' added to table 'autologin_tokens'.");
         }
 
         if (!Capsule::schema()->hasColumn('autologin_tokens', 'destination')) {
             Capsule::schema()->table('autologin_tokens', function ($table) {
                 $table->string('destination');
             });
-            error_log("Coluna 'destination' adicionada à tabela 'autologin_tokens'.");
+            error_log("Column 'destination' added to table 'autologin_tokens'.");
         }
 
         if (!Capsule::schema()->hasColumn('autologin_tokens', 'creation_time')) {
             Capsule::schema()->table('autologin_tokens', function ($table) {
                 $table->integer('creation_time');
             });
-            error_log("Coluna 'creation_time' adicionada à tabela 'autologin_tokens'.");
+            error_log("Column 'creation_time' added to table 'autologin_tokens'.");
         }
     }
 }
@@ -70,7 +70,7 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
     verificarOuCriarTabelaAutologin(); // Check for and create the table if necessary
     
     if (empty($clientId) || !is_numeric($clientId)) {
-        error_log("Client ID inválido ao gerar link de autologin.");
+        error_log("Invalid client ID when generating autologin link.");
         return ''; // Return an empty string if client_id is invalid
     }
 
@@ -90,12 +90,12 @@ function gerarLinkAutoLogin($clientId, $destination = 'clientarea', $customRedir
 
     if ($tokenData && (time() - $tokenData->creation_time < $expirationTime)) {
         $token = $tokenData->token;
-        error_log("Token ativo encontrado para o cliente ID: $clientId e destination: $destination, reutilizando token.");
+        error_log("Active token found for client ID: $clientId and destination: $destination; reusing token.");
     } else {
         // Delete expired tokens or create a new one if no token exists for the full destination
         if ($tokenData) {
             Capsule::table('autologin_tokens')->where('id', $tokenData->id)->delete();
-            error_log("Token expirado ou incorreto para destination, criando novo token para destination: $destination.");
+            error_log("Token expired or incorrect for destination; creating a new token for destination: $destination.");
         }
         $token = hash('sha256', uniqid(rand(), true));
         Capsule::table('autologin_tokens')->insert([
@@ -151,7 +151,7 @@ function CustomEmail_EmailPreSend($vars) {
         $autoLoginLinkSpecificTicket = $customRedirectPathTicket ? gerarLinkAutoLogin($clientId, 'clientarea', $customRedirectPathTicket) : null;
         $autoLoginLinkSpecificInvoice = $customRedirectPathInvoice ? gerarLinkAutoLogin($clientId, 'clientarea', $customRedirectPathInvoice) : null;
 
-        error_log("Campo de mesclagem de auto-login adicionado para o cliente ID $clientId.");
+        error_log("Autologin merge field added for client ID $clientId.");
 
         // Return the autologin link merge fields
         return [
@@ -163,7 +163,7 @@ function CustomEmail_EmailPreSend($vars) {
             'auto_login_link_specific_invoice' => $autoLoginLinkSpecificInvoice
         ];
     } else {
-        error_log("ID do cliente não encontrado ou inválido.");
+        error_log("Client ID not found or invalid.");
     }
 
     return [];

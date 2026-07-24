@@ -10,9 +10,9 @@ $ssoRedirectPath = $_GET['sso_redirect_path'] ?? null;
 $ssoRedirectPath = $ssoRedirectPath ? html_entity_decode($ssoRedirectPath) : null;
 
 // Log the token and other parameters
-error_log("Token recebido: " . ($token ?? 'Nenhum token'));
-error_log("Destination recebido: " . ($destination ?? 'Nenhum destination'));
-error_log("SSO Redirect Path recebido: " . ($ssoRedirectPath ?? 'Nenhum redirect_path'));
+error_log("Token received: " . ($token ?? 'No token'));
+error_log("Destination received: " . ($destination ?? 'No destination'));
+error_log("SSO Redirect Path received: " . ($ssoRedirectPath ?? 'No redirect_path'));
 
 if (!$token) {
     die('Token inválido.');
@@ -68,24 +68,24 @@ if ($tokenData) {
         $response = localAPI('CreateSsoToken', $params);
         
         // Log the API response
-        error_log("Resposta da API CreateSsoToken: " . print_r($response, true));
+        error_log("CreateSsoToken API response: " . print_r($response, true));
 
         if ($response['result'] == 'success') {
             // Delete the token to ensure it can be used only once
             Capsule::table('autologin_tokens')->where('token', $token)->delete();
-            error_log("Token excluído após uso.");
+            error_log("Token deleted after use.");
 
             // Redirect the client to the SSO link
             header("Location: " . $response['redirect_url']);
             exit;
         } else {
-            error_log("Erro ao gerar o SSO token: " . $response['message']);
+            error_log("Error generating SSO token: " . $response['message']);
         }
     } else {
-        error_log("Token expirado.");
+        error_log("Token expired.");
     }
 } else {
-    error_log("Token inválido ou não encontrado, ou destination incorreto.");
+    error_log("Token is invalid or was not found, or the destination is incorrect.");
 }
 
 die('Token inválido ou expirado.');
